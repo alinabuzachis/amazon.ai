@@ -10,8 +10,7 @@ module: bedrock_agent_action_group_info
 short_description: Gather information about a Bedrock Agent's Action Groups
 version_added: "1.0.0"
 deprecated:
-  removed_in_version: "3.0.0"
-  removed_from_collection: "amazon.ai"
+  removed_in: "3.0.0"
   why: AWS Bedrock Agents (Classic) is in Maintenance Mode and new agent creation is restricted by AWS.
   alternative: Use updated Bedrock AgentCore services/modules where available.
 author:

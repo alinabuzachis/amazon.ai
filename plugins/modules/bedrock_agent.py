@@ -12,8 +12,7 @@ version_added: "1.0.0"
 author:
     - Alina Buzachis (@alinabuzachis)
 deprecated:
-  removed_in_version: "3.0.0"
-  removed_from_collection: "amazon.ai"
+  removed_in: "3.0.0"
   why: AWS Bedrock Agents (Classic) is in Maintenance Mode and new agent creation is restricted by AWS.
   alternative: Use updated Bedrock AgentCore services/modules where available.
 description:

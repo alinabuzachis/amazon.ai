@@ -720,6 +720,7 @@ Status
 ------
 
 
+- This module will be removed in version 3.0.0. *[deprecated]*
 - For more information see `DEPRECATED`_.
 
 
