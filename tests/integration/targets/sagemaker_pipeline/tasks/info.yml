@@ -3,7 +3,7 @@
       pipeline_name_prefix: "test-sagemaker-pipeline-{{ test_id }}"
       sort_by: Name
       sort_order: Ascending
-      max_results: 1
+      max_items: 2
     register: pipeline_list
 
   - name: Assert pipeline list includes both test pipelines in sort order
@@ -17,7 +17,7 @@
     amazon.ai.sagemaker_pipeline_info:
       sort_by: CreationTime
       sort_order: Descending
-      max_results: 100
+      max_items: 100
     check_mode: true
     register: pipeline_list_descending
 
@@ -40,4 +40,4 @@
     ansible.builtin.assert:
       that:
         - not pipeline_missing.failed
-        - "pipeline_missing.pipeline == {}"
+        - pipeline_missing.pipelines == []

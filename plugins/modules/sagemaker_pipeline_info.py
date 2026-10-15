@@ -50,10 +50,9 @@ options:
         type: str
         choices: ['Ascending', 'Descending']
         default: Ascending
-    max_results:
+    max_items:
         description:
-            - The maximum number of pipeline summaries returned per service page.
-            - All pages are read and returned.
+            - The maximum number of pipeline summaries to return.
         type: int
 extends_documentation_fragment:
     - amazon.ai.common.modules
@@ -83,63 +82,40 @@ EXAMPLES = r"""
 """
 
 RETURN = r"""
-pipeline:
-    description: The detailed pipeline definition returned by SageMaker.
-    type: dict
-    returned: when O(pipeline_name) is supplied, empty when the pipeline does not exist
+pipelines:
+    description: Detailed pipeline definitions returned by SageMaker.
+    type: list
+    elements: dict
+    returned: always
     sample:
-        pipeline_name: example-pipeline
-        pipeline_status: Active
+        - pipeline_name: example-pipeline
+          pipeline_status: Active
     contains:
         pipeline_arn:
             description: The ARN of the pipeline.
-            returned: when O(pipeline_name) is supplied and the pipeline exists
+            returned: when a matching pipeline is found
             type: str
             sample: "arn:aws:sagemaker:us-east-1:123456789012:pipeline/example-pipeline"
         pipeline_name:
             description: The name of the pipeline.
-            returned: when O(pipeline_name) is supplied and the pipeline exists
+            returned: when a matching pipeline is found
             type: str
-            sample: example-pipeline
+            sample: "example-pipeline"
         pipeline_definition:
             description: The effective JSON definition of the pipeline.
-            returned: when O(pipeline_name) is supplied and the pipeline exists
+            returned: when a matching pipeline is found
             type: str
             sample: '{"Version":"2020-12-01","Steps":[{"Name":"FailForExample","Type":"Fail","Arguments":{"ErrorMessage":"Example failure"}}]}'
         role_arn:
             description: The IAM role ARN used by the pipeline.
-            returned: when O(pipeline_name) is supplied and the pipeline exists
+            returned: when a matching pipeline is found
             type: str
             sample: "arn:aws:iam::123456789012:role/SageMakerPipelineRole"
         pipeline_status:
             description: The current status of the pipeline.
-            returned: when O(pipeline_name) is supplied and the pipeline exists
+            returned: when a matching pipeline is found
             type: str
             sample: Active
-pipelines:
-    description: Pipeline summaries returned by SageMaker.
-    type: list
-    elements: dict
-    returned: when O(pipeline_name) is not supplied
-    sample:
-        - pipeline_name: example-pipeline
-          pipeline_display_name: Example pipeline
-    contains:
-        pipeline_arn:
-            description: The ARN of the pipeline.
-            returned: when O(pipeline_name) is omitted and this pipeline is listed
-            type: str
-            sample: "arn:aws:sagemaker:us-east-1:123456789012:pipeline/example-pipeline"
-        pipeline_name:
-            description: The name of the pipeline.
-            returned: when O(pipeline_name) is omitted and this pipeline is listed
-            type: str
-            sample: example-pipeline
-        role_arn:
-            description: The IAM role ARN used by the pipeline.
-            returned: when O(pipeline_name) is omitted and this pipeline is listed
-            type: str
-            sample: "arn:aws:iam::123456789012:role/SageMakerPipelineRole"
 """
 
 try:
@@ -166,19 +142,18 @@ def main() -> None:
         pipeline_name_prefix=dict(type="str"),
         sort_by=dict(type="str", choices=["Name", "CreationTime"], default="Name"),
         sort_order=dict(type="str", choices=["Ascending", "Descending"], default="Ascending"),
-        max_results=dict(type="int"),
+        max_items=dict(type="int"),
     )
     module = AnsibleAWSModule(
         argument_spec=argument_spec,
         supports_check_mode=True,
         mutually_exclusive=[["pipeline_name", "pipeline_name_prefix"]],
+        required_by={"pipeline_version_id": ["pipeline_name"]},
     )
-    if module.params.get("pipeline_version_id") is not None and module.params.get("pipeline_name") is None:
-        module.fail_json(msg="pipeline_version_id requires pipeline_name.")
     if module.params.get("pipeline_version_id") is not None and module.params["pipeline_version_id"] < 1:
         module.fail_json(msg="pipeline_version_id must be greater than or equal to 1.")
-    if module.params.get("max_results") is not None and not 1 <= module.params["max_results"] <= 100:
-        module.fail_json(msg="max_results must be between 1 and 100.")
+    if module.params.get("max_items") is not None and module.params["max_items"] < 1:
+        module.fail_json(msg="max_items must be greater than zero.")
     if module.params.get("pipeline_name_prefix") is not None and module.params["sort_by"] != "Name":
         module.fail_json(msg="sort_by must be Name when pipeline_name_prefix is supplied.")
 
@@ -196,13 +171,18 @@ def main() -> None:
                 pipeline_version_id=module.params.get("pipeline_version_id"),
             )
             if pipeline is None:
-                module.exit_json(changed=False, pipeline=dict())
-            module.exit_json(changed=False, pipeline=camel_dict_to_snake_dict(pipeline))
+                module.exit_json(changed=False, pipelines=list())
+            module.exit_json(changed=False, pipelines=[camel_dict_to_snake_dict(pipeline)])
 
-        param_names = ("pipeline_name_prefix", "sort_by", "sort_order", "max_results")
+        param_names = ("pipeline_name_prefix", "sort_by", "sort_order")
         params = {key: module.params.get(key) for key in param_names if module.params.get(key) is not None}
         params = snake_dict_to_camel_dict(scrub_none_parameters(params), capitalize_first=True)
-        pipelines = [camel_dict_to_snake_dict(summary) for summary in list_pipelines(client, **params)]
+        pipeline_summaries = list_pipelines(client, max_items=module.params.get("max_items"), **params)
+        pipelines = []
+        for summary in pipeline_summaries:
+            pipeline = describe_pipeline(client, summary["PipelineName"])
+            if pipeline is not None:
+                pipelines.append(camel_dict_to_snake_dict(pipeline))
         module.exit_json(changed=False, pipelines=pipelines)
     except AnsibleAWSError as e:
         module.fail_json_aws_error(e)

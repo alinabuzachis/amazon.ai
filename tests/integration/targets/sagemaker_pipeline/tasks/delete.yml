@@ -34,7 +34,7 @@
     ansible.builtin.assert:
       that:
         - not pipeline_deleted_info.failed
-        - "pipeline_deleted_info.pipeline == {}"
+        - pipeline_deleted_info.pipelines == []
 
   - name: Re-run inline pipeline deletion
     amazon.ai.sagemaker_pipeline:

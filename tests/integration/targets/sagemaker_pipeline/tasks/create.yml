@@ -44,9 +44,9 @@
   - name: Assert inline pipeline information
     ansible.builtin.assert:
       that:
-        - pipeline_info.pipeline.pipeline_name == pipeline_name
-        - pipeline_info.pipeline.pipeline_status == 'Active'
-        - (pipeline_info.pipeline.pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
+        - pipeline_info.pipelines[0].pipeline_name == pipeline_name
+        - pipeline_info.pipelines[0].pipeline_status == 'Active'
+        - (pipeline_info.pipelines[0].pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
 
   - name: Get a specific inline pipeline version
     amazon.ai.sagemaker_pipeline_info:
@@ -57,8 +57,8 @@
   - name: Assert historical pipeline version lookup
     ansible.builtin.assert:
       that:
-        - pipeline_version_info.pipeline.pipeline_name == pipeline_name
-        - (pipeline_version_info.pipeline.pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
+        - pipeline_version_info.pipelines[0].pipeline_name == pipeline_name
+        - (pipeline_version_info.pipelines[0].pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
 
   - name: Re-run inline pipeline creation
     amazon.ai.sagemaker_pipeline:

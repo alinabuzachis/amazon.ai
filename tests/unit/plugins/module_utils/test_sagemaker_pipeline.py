@@ -6,6 +6,7 @@
 
 from io import BytesIO
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from ansible_collections.amazon.ai.plugins.module_utils.sagemaker import create_pipeline
@@ -24,11 +25,11 @@ from ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info impor
 from botocore.exceptions import ClientError
 
 
-def test_create_validation_reports_missing_definition_before_missing_role():
+def test_create_validation_reports_missing_role():
     module = MagicMock()
     module.params = {
         "pipeline_name": "pipeline",
-        "pipeline_definition": None,
+        "pipeline_definition": '{"Version":"2020-12-01","Steps":[]}',
         "pipeline_definition_s3_location": None,
         "role_arn": None,
     }
@@ -37,9 +38,62 @@ def test_create_validation_reports_missing_definition_before_missing_role():
     with pytest.raises(RuntimeError, match="module failure"):
         _ensure_present(MagicMock(), module, None)
 
-    module.fail_json.assert_called_once_with(
-        msg="Exactly one pipeline definition source is required when creating a pipeline."
+    module.fail_json.assert_called_once_with(msg="role_arn is required when creating a pipeline.")
+
+
+def test_create_check_mode_does_not_initialize_s3_client():
+    module = MagicMock()
+    module.params = {
+        "pipeline_name": "pipeline",
+        "pipeline_definition": None,
+        "pipeline_definition_s3_location": {"bucket": "bucket", "object_key": "definition.json"},
+        "role_arn": "arn:aws:iam::123456789012:role/SageMakerPipelineRole",
+        "wait": True,
+    }
+    module.check_mode = True
+
+    changed, result = _ensure_present(MagicMock(), module, None)
+
+    assert changed is True
+    assert result["msg"].startswith("Check mode: would have created pipeline")
+    assert result["pipeline"] == {}
+    module.client.assert_not_called()
+
+
+def test_present_check_mode_always_returns_pipeline_tags(monkeypatch):
+    module = MagicMock()
+    module.params = {
+        "pipeline_name": "pipeline",
+        "pipeline_definition": None,
+        "pipeline_definition_s3_location": None,
+        "tags": None,
+    }
+    module.check_mode = True
+    existing = {"PipelineArn": "pipeline-arn", "PipelineName": "pipeline"}
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline.pipeline_properties_to_update",
+        lambda *args, **kwargs: {},
     )
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline.update_pipeline",
+        lambda *args, **kwargs: (False, "No updates needed for pipeline pipeline.", None),
+    )
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline.reconcile_pipeline_tags",
+        lambda *args, **kwargs: (False, ""),
+    )
+    list_tags = MagicMock(return_value={})
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline.list_tags",
+        list_tags,
+    )
+    client = MagicMock()
+
+    changed, result = _ensure_present(client, module, existing)
+
+    assert changed is False
+    assert result["pipeline"]["tags"] == {}
+    list_tags.assert_called_once_with(client, "pipeline-arn")
 
 
 def test_describe_pipeline_returns_none_when_missing():
@@ -83,6 +137,16 @@ def test_list_pipelines_returns_paginated_summaries():
     client.get_paginator.return_value.paginate.assert_called_once_with(PipelineNamePrefix="pipeline")
 
 
+def test_list_pipelines_limits_total_items():
+    client = MagicMock()
+    client.get_paginator.return_value.paginate.return_value.build_full_result.return_value = {
+        "PipelineSummaries": [{"PipelineName": "pipeline-a"}]
+    }
+
+    assert list_pipelines(client, max_items=1) == [{"PipelineName": "pipeline-a"}]
+    client.get_paginator.return_value.paginate.assert_called_once_with(PaginationConfig={"MaxItems": 1})
+
+
 def test_get_pipeline_definition_from_s3_reads_and_closes_body():
     client = MagicMock()
     body = BytesIO(b'{"Steps": []}')
@@ -119,6 +183,27 @@ def test_pipeline_properties_to_update_compares_inline_definitions_structurally(
     assert pipeline_properties_to_update(existing, module) == {}
 
 
+def test_pipeline_properties_to_update_handles_missing_existing_s3_definition(monkeypatch):
+    module = MagicMock()
+    module.params = {
+        "pipeline_definition": None,
+        "pipeline_definition_s3_location": {"bucket": "bucket", "object_key": "definition.json"},
+        "role_arn": None,
+        "pipeline_display_name": None,
+        "pipeline_description": None,
+        "parallelism_configuration": None,
+    }
+    s3_client = MagicMock()
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.module_utils.sagemaker.get_pipeline_definition_from_s3",
+        lambda *args, **kwargs: {"Steps": []},
+    )
+
+    assert pipeline_properties_to_update({}, module, s3_client=s3_client) == {
+        "PipelineDefinitionS3Location": {"Bucket": "bucket", "ObjectKey": "definition.json"}
+    }
+
+
 def test_pipeline_properties_to_update_includes_only_different_properties():
     module = MagicMock()
     module.params = {
@@ -141,32 +226,98 @@ def test_pipeline_properties_to_update_includes_only_different_properties():
     }
 
 
-def test_wait_for_pipeline_status_passes_expected_properties(monkeypatch):
+def test_wait_for_pipeline_status_checks_expected_properties_structurally():
     client = MagicMock()
+    client.describe_pipeline.return_value = {
+        "PipelineStatus": "Active",
+        "PipelineDescription": "ready",
+        "PipelineDefinition": '{"Steps": [{"Name": "step"}]}',
+    }
     module = MagicMock()
-    expected_properties = {"PipelineDescription": "updated"}
-    waiter = MagicMock()
-    monkeypatch.setattr(
-        "ansible_collections.amazon.ai.plugins.module_utils.sagemaker._wait_for_pipeline_status",
-        waiter,
-    )
+    module.params = {"wait_timeout": 1}
 
     wait_for_pipeline_status(
         client,
         module,
-        "pipeline",
-        expected_properties=expected_properties,
-        pipeline_version_id=3,
+        "example-pipeline",
+        expected_properties={
+            "PipelineDescription": "ready",
+            "PipelineDefinition": {"Steps": [{"Name": "step"}]},
+        },
     )
 
-    waiter.assert_called_once_with(
-        client,
-        module,
-        "pipeline",
-        deleted=False,
-        expected_properties=expected_properties,
-        pipeline_version_id=3,
+    client.describe_pipeline.assert_called_once_with(PipelineName="example-pipeline")
+    module.fail_json.assert_not_called()
+
+
+def test_wait_for_pipeline_status_describes_requested_version():
+    client = MagicMock()
+    client.describe_pipeline.return_value = {"PipelineStatus": "Active"}
+    module = MagicMock()
+    module.params = {"wait_timeout": 1}
+
+    wait_for_pipeline_status(client, module, "example-pipeline", pipeline_version_id=3)
+
+    client.describe_pipeline.assert_called_once_with(PipelineName="example-pipeline", PipelineVersionId=3)
+
+
+def test_wait_for_pipeline_status_retries_until_expected_properties_are_visible():
+    client = MagicMock()
+    client.describe_pipeline.side_effect = [
+        {"PipelineStatus": "Active", "PipelineDescription": "old"},
+        {"PipelineStatus": "Active", "PipelineDescription": "new"},
+    ]
+    module = MagicMock()
+    module.params = {"wait_timeout": 1}
+
+    with patch("ansible_collections.amazon.ai.plugins.module_utils.sagemaker.time.sleep"):
+        wait_for_pipeline_status(
+            client,
+            module,
+            "example-pipeline",
+            expected_properties={"PipelineDescription": "new"},
+        )
+
+    assert client.describe_pipeline.call_count == 2
+    module.fail_json.assert_not_called()
+
+
+def test_wait_for_pipeline_deletion_accepts_resource_not_found():
+    client = MagicMock()
+    client.describe_pipeline.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFound", "Message": "missing"}},
+        "DescribePipeline",
     )
+    module = MagicMock()
+    module.params = {"wait_timeout": 1}
+
+    wait_for_pipeline_status(client, module, "example-pipeline", deleted=True)
+
+    module.fail_json.assert_not_called()
+
+
+def test_wait_for_pipeline_status_fails_when_expected_properties_timeout():
+    client = MagicMock()
+    client.describe_pipeline.return_value = {"PipelineStatus": "Active", "PipelineDescription": "old"}
+    module = MagicMock()
+    module.params = {"wait_timeout": 1}
+    module.fail_json.side_effect = RuntimeError("wait failed")
+
+    with (
+        patch(
+            "ansible_collections.amazon.ai.plugins.module_utils.sagemaker.time.monotonic",
+            side_effect=[0, 2],
+        ),
+        pytest.raises(RuntimeError, match="wait failed"),
+    ):
+        wait_for_pipeline_status(
+            client,
+            module,
+            "example-pipeline",
+            expected_properties={"PipelineDescription": "new"},
+        )
+
+    module.fail_json.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -401,12 +552,91 @@ def test_parse_json_reports_invalid_input(value):
 
 
 @pytest.mark.parametrize(
+    "pipeline, expected",
+    [
+        ({"PipelineName": "pipeline"}, {"changed": False, "pipelines": [{"pipeline_name": "pipeline"}]}),
+        (None, {"changed": False, "pipelines": []}),
+    ],
+)
+def test_pipeline_info_named_lookup_returns_pipeline_list(monkeypatch, pipeline, expected):
+    module = MagicMock()
+    module.params = {"pipeline_name": "pipeline", "pipeline_version_id": None}
+    module.exit_json.side_effect = RuntimeError("module exit")
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.AnsibleAWSModule",
+        MagicMock(return_value=module),
+    )
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.describe_pipeline",
+        MagicMock(return_value=pipeline),
+    )
+
+    with pytest.raises(RuntimeError, match="module exit"):
+        pipeline_info_main()
+
+    module.exit_json.assert_called_once_with(**expected)
+
+
+def test_pipeline_info_describes_each_listed_pipeline(monkeypatch):
+    module = MagicMock()
+    module.params = {
+        "pipeline_name": None,
+        "pipeline_version_id": None,
+        "pipeline_name_prefix": "pipeline",
+        "sort_by": "Name",
+        "sort_order": "Ascending",
+        "max_items": 2,
+    }
+    module.exit_json.side_effect = RuntimeError("module exit")
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.AnsibleAWSModule",
+        MagicMock(return_value=module),
+    )
+    list_pipelines_mock = MagicMock(
+        return_value=[
+            {"PipelineName": "pipeline-one"},
+            {"PipelineName": "pipeline-two"},
+        ]
+    )
+    describe_pipeline_mock = MagicMock(
+        side_effect=[
+            {"PipelineName": "pipeline-one", "PipelineStatus": "Active", "PipelineDefinition": "{}"},
+            None,
+        ]
+    )
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.list_pipelines",
+        list_pipelines_mock,
+    )
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.describe_pipeline",
+        describe_pipeline_mock,
+    )
+
+    with pytest.raises(RuntimeError, match="module exit"):
+        pipeline_info_main()
+
+    list_pipelines_mock.assert_called_once_with(
+        module.client.return_value,
+        max_items=2,
+        PipelineNamePrefix="pipeline",
+        SortBy="Name",
+        SortOrder="Ascending",
+    )
+    assert [call.args[1] for call in describe_pipeline_mock.call_args_list] == ["pipeline-one", "pipeline-two"]
+    module.exit_json.assert_called_once_with(
+        changed=False,
+        pipelines=[
+            {"pipeline_name": "pipeline-one", "pipeline_status": "Active", "pipeline_definition": "{}"},
+        ],
+    )
+
+
+@pytest.mark.parametrize(
     "params, message",
     [
-        ({"pipeline_version_id": 1}, "pipeline_version_id requires pipeline_name"),
         ({"pipeline_name": "pipeline", "pipeline_version_id": 0}, "pipeline_version_id must be greater"),
-        ({"max_results": 0}, "max_results must be between"),
-        ({"max_results": 101}, "max_results must be between"),
+        ({"max_items": 0}, "max_items must be greater than zero"),
         (
             {"pipeline_name_prefix": "pipeline", "sort_by": "CreationTime"},
             "sort_by must be Name when pipeline_name_prefix is supplied",
@@ -427,3 +657,19 @@ def test_pipeline_info_rejects_invalid_parameters_before_connecting(monkeypatch,
 
     assert message in module.fail_json.call_args.kwargs["msg"]
     module.client.assert_not_called()
+
+
+def test_pipeline_info_declares_pipeline_name_required_by_version_id(monkeypatch):
+    module = MagicMock()
+    module.params = {"pipeline_name": None, "pipeline_version_id": None}
+    module.exit_json.side_effect = RuntimeError("module exit")
+    ansible_module = MagicMock(return_value=module)
+    monkeypatch.setattr(
+        "ansible_collections.amazon.ai.plugins.modules.sagemaker_pipeline_info.AnsibleAWSModule",
+        ansible_module,
+    )
+
+    with pytest.raises(RuntimeError, match="module exit"):
+        pipeline_info_main()
+
+    assert ansible_module.call_args.kwargs["required_by"] == {"pipeline_version_id": ["pipeline_name"]}

@@ -35,8 +35,8 @@
   - name: Assert inline update is visible in info
     ansible.builtin.assert:
       that:
-        - pipeline_after_update_info.pipeline.pipeline_arn == pipeline_create.pipeline.pipeline_arn
-        - (pipeline_after_update_info.pipeline.pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'second version'
+        - pipeline_after_update_info.pipelines[0].pipeline_arn == pipeline_create.pipeline.pipeline_arn
+        - (pipeline_after_update_info.pipelines[0].pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'second version'
 
   - name: Re-run inline definition update
     amazon.ai.sagemaker_pipeline:
@@ -59,12 +59,13 @@
   - name: Assert the historical definition is preserved
     ansible.builtin.assert:
       that:
-        - pipeline_original_version.pipeline.pipeline_arn == pipeline_create.pipeline.pipeline_arn
-        - (pipeline_original_version.pipeline.pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
+        - pipeline_original_version.pipelines[0].pipeline_arn == pipeline_create.pipeline.pipeline_arn
+        - (pipeline_original_version.pipelines[0].pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'first version'
 
   - name: Update pipeline parallelism configuration
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       parallelism_configuration:
         max_parallel_execution_steps: 2
     check_mode: true
@@ -81,6 +82,7 @@
   - name: Apply pipeline parallelism configuration
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       parallelism_configuration:
         max_parallel_execution_steps: 2
     register: pipeline_parallelism_update
@@ -100,12 +102,13 @@
   - name: Assert parallelism update is visible in info
     ansible.builtin.assert:
       that:
-        - pipeline_parallelism_info.pipeline.pipeline_arn == pipeline_create.pipeline.pipeline_arn
-        - pipeline_parallelism_info.pipeline.parallelism_configuration.max_parallel_execution_steps == 2
+        - pipeline_parallelism_info.pipelines[0].pipeline_arn == pipeline_create.pipeline.pipeline_arn
+        - pipeline_parallelism_info.pipelines[0].parallelism_configuration.max_parallel_execution_steps == 2
 
   - name: Re-run parallelism configuration update
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       parallelism_configuration:
         max_parallel_execution_steps: 2
     register: pipeline_parallelism_rerun
@@ -119,6 +122,7 @@
   - name: Update pipeline description in check mode
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       pipeline_description: Updated by integration test
     check_mode: true
     register: pipeline_description_check
@@ -134,6 +138,7 @@
   - name: Apply pipeline description update
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       pipeline_description: Updated by integration test
     register: pipeline_description_update
 
@@ -152,12 +157,13 @@
   - name: Assert description update is visible in info
     ansible.builtin.assert:
       that:
-        - pipeline_description_info.pipeline.pipeline_arn == pipeline_create.pipeline.pipeline_arn
-        - pipeline_description_info.pipeline.pipeline_description == 'Updated by integration test'
+        - pipeline_description_info.pipelines[0].pipeline_arn == pipeline_create.pipeline.pipeline_arn
+        - pipeline_description_info.pipelines[0].pipeline_description == 'Updated by integration test'
 
   - name: Re-run pipeline description update
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       pipeline_description: Updated by integration test
     register: pipeline_description_rerun
 
@@ -170,6 +176,7 @@
   - name: Update tags in check mode
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       tags:
         team: ai
     check_mode: true
@@ -186,6 +193,7 @@
   - name: Update and purge pipeline tags
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       tags:
         team: ai
     register: pipeline_tags_update
@@ -200,6 +208,7 @@
   - name: Re-run pipeline tag update
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v2 }}"
       tags:
         team: ai
     register: pipeline_tags_rerun

@@ -1,7 +1,7 @@
 # Copyright: Contributors to the Ansible project
 # GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-import json
+import time
 from typing import Any
 from typing import Dict
 from typing import List
@@ -15,9 +15,6 @@ except ImportError:
 
 from ansible_collections.amazon.ai.plugins.module_utils.utils import parse_json
 from ansible_collections.amazon.ai.plugins.module_utils.waiters import wait_for_model_package_group_deletion
-from ansible_collections.amazon.ai.plugins.module_utils.waiters import (
-    wait_for_pipeline_status as _wait_for_pipeline_status,
-)
 
 from ansible.module_utils.common.dict_transformations import snake_dict_to_camel_dict
 
@@ -700,13 +697,16 @@ def describe_pipeline(
 
 
 @AWSRetry.jittered_backoff(retries=10)
-def list_pipelines(client, **params: Any) -> List[Dict[str, Any]]:
+def list_pipelines(client, max_items: Optional[int] = None, **params: Any) -> List[Dict[str, Any]]:
     """Retrieve pipeline definition summaries using the SageMaker paginator."""
     paginator = client.get_paginator("list_pipelines")
+    if max_items is not None:
+        return paginator.paginate(**params, PaginationConfig={"MaxItems": max_items}).build_full_result()[
+            "PipelineSummaries"
+        ]
     return paginator.paginate(**params).build_full_result()["PipelineSummaries"]
 
 
-@AWSRetry.jittered_backoff(retries=10)
 def get_pipeline_definition_from_s3(client, location: Dict[str, Any], module) -> Any:
     """Read and parse the JSON definition object referenced by a pipeline S3 location."""
     params = dict(Bucket=location["Bucket"], Key=location["ObjectKey"])
@@ -730,10 +730,7 @@ def get_pipeline_definition_from_s3(client, location: Dict[str, Any], module) ->
             content = content.decode("utf-8")
         except UnicodeDecodeError as e:
             module.fail_json(msg=f"The S3 pipeline definition object is not valid UTF-8: {e}")
-    try:
-        return json.loads(content)
-    except (TypeError, json.JSONDecodeError) as e:
-        module.fail_json(msg=f"The S3 pipeline definition object does not contain valid JSON: {e}")
+    return parse_json(content, module, "S3 pipeline definition")
 
 
 def _pipeline_properties_to_wait_for(module, s3_client=None) -> Dict[str, Any]:
@@ -751,8 +748,7 @@ def _pipeline_properties_to_wait_for(module, s3_client=None) -> Dict[str, Any]:
         params["PipelineDefinition"] = parse_json(params["PipelineDefinition"], module, "pipeline_definition")
     if "PipelineDefinitionS3Location" in params:
         location = params.pop("PipelineDefinitionS3Location")
-        if s3_client is not None:
-            params["PipelineDefinition"] = get_pipeline_definition_from_s3(s3_client, location, module)
+        params["PipelineDefinition"] = get_pipeline_definition_from_s3(s3_client, location, module)
     return params
 
 
@@ -779,18 +775,17 @@ def pipeline_properties_to_update(existing: Dict[str, Any], module, s3_client=No
             if desired_definition != current_definition:
                 properties_to_update[field] = value
         elif field == "PipelineDefinitionS3Location":
-            if s3_client is None:
-                module.fail_json(msg="An S3 client is required to compare the pipeline definition object.")
             desired_definition = get_pipeline_definition_from_s3(s3_client, value, module)
-            current_definition = parse_json(existing.get("PipelineDefinition"), module, "existing pipeline definition")
-            if desired_definition != current_definition:
+            current_definition = existing.get("PipelineDefinition")
+            if current_definition is None or desired_definition != parse_json(
+                current_definition, module, "existing pipeline definition"
+            ):
                 properties_to_update[field] = value
         elif existing.get(field) != value:
             properties_to_update[field] = value
     return properties_to_update
 
 
-@AWSRetry.jittered_backoff(retries=10)
 def create_pipeline(client, module, s3_client=None) -> Tuple[bool, str]:
     """Create a SageMaker pipeline definition."""
     pipeline_name = module.params["pipeline_name"]
@@ -903,11 +898,35 @@ def wait_for_pipeline_status(
     pipeline_version_id: Optional[int] = None,
 ) -> None:
     """Wait for a SageMaker pipeline to become active or be deleted."""
-    _wait_for_pipeline_status(
-        client,
-        module,
-        pipeline_name,
-        deleted=deleted,
-        expected_properties=expected_properties,
-        pipeline_version_id=pipeline_version_id,
-    )
+    wait_timeout = module.params.get("wait_timeout", 600)
+    deadline = time.monotonic() + wait_timeout
+    while True:
+        pipeline = describe_pipeline(client, pipeline_name, pipeline_version_id)
+
+        if deleted and pipeline is None:
+            return
+        if (
+            not deleted
+            and pipeline is not None
+            and pipeline.get("PipelineStatus") == "Active"
+            and _pipeline_properties_match(pipeline, expected_properties or {}, module, pipeline_name)
+        ):
+            return
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            desired_state = "deletion" if deleted else "Active status with requested properties"
+            module.fail_json(msg=f"Timed out waiting for pipeline {pipeline_name} to reach {desired_state}.")
+        time.sleep(min(5, remaining))
+
+
+def _pipeline_properties_match(
+    pipeline: Dict[str, Any], expected_properties: Dict[str, Any], module, pipeline_name: str
+) -> bool:
+    for name, expected in expected_properties.items():
+        actual = pipeline.get(name)
+        if name == "PipelineDefinition":
+            actual = parse_json(actual, module, f"pipeline {pipeline_name} definition returned while waiting")
+        if actual != expected:
+            return False
+    return True

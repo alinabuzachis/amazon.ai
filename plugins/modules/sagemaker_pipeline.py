@@ -37,13 +37,13 @@ options:
     pipeline_definition:
         description:
             - The JSON pipeline definition as a string.
-            - Required when creating a pipeline unless O(pipeline_definition_s3_location) is supplied.
+            - Required when O(state=present) unless O(pipeline_definition_s3_location) is supplied.
             - Mutually exclusive with O(pipeline_definition_s3_location).
         type: str
     pipeline_definition_s3_location:
         description:
             - The S3 object containing the JSON pipeline definition.
-            - Required when creating a pipeline unless O(pipeline_definition) is supplied.
+            - Required when O(state=present) unless O(pipeline_definition) is supplied.
             - Mutually exclusive with O(pipeline_definition).
         type: dict
         suboptions:
@@ -163,7 +163,7 @@ pipeline:
             description: The name of the pipeline.
             returned: on success when O(state=present)
             type: str
-            sample: example-pipeline
+            sample: "example-pipeline"
         pipeline_definition:
             description: The effective JSON definition of the pipeline.
             returned: on success when O(state=present)
@@ -180,8 +180,8 @@ pipeline:
             type: str
             sample: Active
         tags:
-            description: The pipeline tags, returned when O(tags) is supplied outside check mode.
-            returned: when O(tags) is supplied and the run is not in check mode
+            description: The pipeline tags.
+            returned: on success when O(state=present) and the pipeline exists
             type: dict
             sample:
                 project: demo
@@ -228,47 +228,33 @@ def _ensure_present(
 ) -> Tuple[bool, Dict[str, Any]]:
     pipeline_name = module.params["pipeline_name"]
     if existing is None:
-        if (
-            module.params.get("pipeline_definition") is None
-            and module.params.get("pipeline_definition_s3_location") is None
-        ):
-            module.fail_json(msg="Exactly one pipeline definition source is required when creating a pipeline.")
         if not module.params.get("role_arn"):
             module.fail_json(msg="role_arn is required when creating a pipeline.")
         if module.params.get("pipeline_definition") is not None:
             parse_json(module.params["pipeline_definition"], module, "pipeline_definition")
-        s3_client = None
-        if (
-            module.params.get("pipeline_definition_s3_location") is not None
-            and module.params.get("wait", True)
-            and not module.check_mode
-        ):
-            try:
-                s3_client = module.client("s3", retry_decorator=AWSRetry.jittered_backoff())
-            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
-                module.fail_json_aws(e, msg="Failed to connect to AWS.")
-        changed, msg = create_pipeline(client, module, s3_client=s3_client)
         if module.check_mode:
+            changed, msg = create_pipeline(client, module)
             return changed, dict(msg=msg, pipeline={})
-        existing = describe_pipeline(client, pipeline_name)
-        if existing is None:
-            module.fail_json(msg=f"Pipeline {pipeline_name} was created but could not be retrieved.")
-        result_pipeline = _normalize_pipeline(existing)
-        if module.params.get("tags") is not None:
-            result_pipeline["tags"] = list_tags(client, existing["PipelineArn"])
-        return changed, dict(msg=msg, pipeline=result_pipeline)
-
-    if existing.get("PipelineStatus") == "Deleting":
+    elif existing.get("PipelineStatus") == "Deleting":
         module.fail_json(
             msg=f"Pipeline {pipeline_name} is being deleted and cannot be updated. Retry after deletion completes."
         )
 
     s3_client = None
-    if module.params.get("pipeline_definition_s3_location") is not None:
+    if module.params.get("pipeline_definition_s3_location") is not None and (
+        existing is not None or module.params.get("wait", True)
+    ):
         try:
             s3_client = module.client("s3", retry_decorator=AWSRetry.jittered_backoff())
         except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as e:
             module.fail_json_aws(e, msg="Failed to connect to AWS.")
+
+    if existing is None:
+        changed, msg = create_pipeline(client, module, s3_client=s3_client)
+        existing = describe_pipeline(client, pipeline_name)
+        result_pipeline = _normalize_pipeline(existing)
+        result_pipeline["tags"] = list_tags(client, existing["PipelineArn"])
+        return changed, dict(msg=msg, pipeline=result_pipeline)
 
     properties_to_update = pipeline_properties_to_update(existing, module, s3_client=s3_client)
     changed, msg, pipeline_version_id = update_pipeline(
@@ -284,14 +270,15 @@ def _ensure_present(
         msg = f"No updates needed for pipeline {pipeline_name}."
 
     if module.check_mode:
-        return changed, dict(msg=msg, pipeline=_normalize_pipeline(existing))
+        result_pipeline = _normalize_pipeline(existing)
+        result_pipeline["tags"] = list_tags(client, existing["PipelineArn"])
+        return changed, dict(msg=msg, pipeline=result_pipeline)
 
     current = describe_pipeline(client, pipeline_name, pipeline_version_id=pipeline_version_id)
     if current is None:
         module.fail_json(msg=f"Pipeline {pipeline_name} could not be retrieved after reconciliation.")
     result_pipeline = _normalize_pipeline(current)
-    if module.params.get("tags") is not None:
-        result_pipeline["tags"] = list_tags(client, current["PipelineArn"])
+    result_pipeline["tags"] = list_tags(client, current["PipelineArn"])
     return changed, dict(msg=msg, pipeline=result_pipeline)
 
 
@@ -336,6 +323,7 @@ def main() -> None:
         argument_spec=argument_spec,
         supports_check_mode=True,
         mutually_exclusive=[["pipeline_definition", "pipeline_definition_s3_location"]],
+        required_if=[("state", "present", ["pipeline_definition", "pipeline_definition_s3_location"], True)],
     )
     if module.params["wait_timeout"] < 1:
         module.fail_json(msg="wait_timeout must be greater than zero.")

@@ -33,11 +33,12 @@
     ansible.builtin.assert:
       that:
         - pipeline_missing_source.failed
-        - "'definition source is required' in pipeline_missing_source.msg"
+        - "'following are missing: pipeline_definition, pipeline_definition_s3_location' in pipeline_missing_source.msg"
 
   - name: Attempt to set invalid pipeline parallelism
     amazon.ai.sagemaker_pipeline:
       pipeline_name: "{{ missing_pipeline_name }}"
+      pipeline_definition: "{{ pipeline_definition_v1 }}"
       parallelism_configuration:
         max_parallel_execution_steps: 0
     register: pipeline_invalid_parallelism

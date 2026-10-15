@@ -134,7 +134,7 @@ Parameters
             <tr>
                 <td colspan="1">
                     <div class="ansibleOptionAnchor" id="parameter-"></div>
-                    <b>max_results</b>
+                    <b>max_items</b>
                     <a class="ansibleOptionLink" href="#parameter-" title="Permalink to this option"></a>
                     <div style="font-size: small">
                         <span style="color: purple">integer</span>
@@ -143,8 +143,7 @@ Parameters
                 <td>
                 </td>
                 <td>
-                        <div>The maximum number of pipeline summaries returned per service page.</div>
-                        <div>All pages are read and returned.</div>
+                        <div>The maximum number of pipeline summaries to return.</div>
                 </td>
             </tr>
             <tr>
@@ -390,18 +389,19 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
             <tr>
                 <td colspan="2">
                     <div class="ansibleOptionAnchor" id="return-"></div>
-                    <b>pipeline</b>
+                    <b>pipelines</b>
                     <a class="ansibleOptionLink" href="#return-" title="Permalink to this return value"></a>
                     <div style="font-size: small">
-                      <span style="color: purple">dictionary</span>
+                      <span style="color: purple">list</span>
+                       / <span style="color: purple">elements=dictionary</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied, empty when the pipeline does not exist</td>
+                <td>always</td>
                 <td>
-                            <div>The detailed pipeline definition returned by SageMaker.</div>
+                            <div>Detailed pipeline definitions returned by SageMaker.</div>
                     <br/>
                         <div style="font-size: smaller"><b>Sample:</b></div>
-                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">{&#x27;pipeline_name&#x27;: &#x27;example-pipeline&#x27;, &#x27;pipeline_status&#x27;: &#x27;Active&#x27;}</div>
+                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">[{&#x27;pipeline_name&#x27;: &#x27;example-pipeline&#x27;, &#x27;pipeline_status&#x27;: &#x27;Active&#x27;}]</div>
                 </td>
             </tr>
                                 <tr>
@@ -414,7 +414,7 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">string</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied and the pipeline exists</td>
+                <td>when a matching pipeline is found</td>
                 <td>
                             <div>The ARN of the pipeline.</div>
                     <br/>
@@ -432,7 +432,7 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">string</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied and the pipeline exists</td>
+                <td>when a matching pipeline is found</td>
                 <td>
                             <div>The effective JSON definition of the pipeline.</div>
                     <br/>
@@ -450,7 +450,7 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">string</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied and the pipeline exists</td>
+                <td>when a matching pipeline is found</td>
                 <td>
                             <div>The name of the pipeline.</div>
                     <br/>
@@ -468,7 +468,7 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">string</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied and the pipeline exists</td>
+                <td>when a matching pipeline is found</td>
                 <td>
                             <div>The current status of the pipeline.</div>
                     <br/>
@@ -486,80 +486,7 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">string</span>
                     </div>
                 </td>
-                <td>when O(pipeline_name) is supplied and the pipeline exists</td>
-                <td>
-                            <div>The IAM role ARN used by the pipeline.</div>
-                    <br/>
-                        <div style="font-size: smaller"><b>Sample:</b></div>
-                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">arn:aws:iam::123456789012:role/SageMakerPipelineRole</div>
-                </td>
-            </tr>
-
-            <tr>
-                <td colspan="2">
-                    <div class="ansibleOptionAnchor" id="return-"></div>
-                    <b>pipelines</b>
-                    <a class="ansibleOptionLink" href="#return-" title="Permalink to this return value"></a>
-                    <div style="font-size: small">
-                      <span style="color: purple">list</span>
-                       / <span style="color: purple">elements=dictionary</span>
-                    </div>
-                </td>
-                <td>when O(pipeline_name) is not supplied</td>
-                <td>
-                            <div>Pipeline summaries returned by SageMaker.</div>
-                    <br/>
-                        <div style="font-size: smaller"><b>Sample:</b></div>
-                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">[{&#x27;pipeline_name&#x27;: &#x27;example-pipeline&#x27;, &#x27;pipeline_display_name&#x27;: &#x27;Example pipeline&#x27;}]</div>
-                </td>
-            </tr>
-                                <tr>
-                    <td class="elbow-placeholder">&nbsp;</td>
-                <td colspan="1">
-                    <div class="ansibleOptionAnchor" id="return-"></div>
-                    <b>pipeline_arn</b>
-                    <a class="ansibleOptionLink" href="#return-" title="Permalink to this return value"></a>
-                    <div style="font-size: small">
-                      <span style="color: purple">string</span>
-                    </div>
-                </td>
-                <td>when O(pipeline_name) is omitted and this pipeline is listed</td>
-                <td>
-                            <div>The ARN of the pipeline.</div>
-                    <br/>
-                        <div style="font-size: smaller"><b>Sample:</b></div>
-                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">arn:aws:sagemaker:us-east-1:123456789012:pipeline/example-pipeline</div>
-                </td>
-            </tr>
-            <tr>
-                    <td class="elbow-placeholder">&nbsp;</td>
-                <td colspan="1">
-                    <div class="ansibleOptionAnchor" id="return-"></div>
-                    <b>pipeline_name</b>
-                    <a class="ansibleOptionLink" href="#return-" title="Permalink to this return value"></a>
-                    <div style="font-size: small">
-                      <span style="color: purple">string</span>
-                    </div>
-                </td>
-                <td>when O(pipeline_name) is omitted and this pipeline is listed</td>
-                <td>
-                            <div>The name of the pipeline.</div>
-                    <br/>
-                        <div style="font-size: smaller"><b>Sample:</b></div>
-                        <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">example-pipeline</div>
-                </td>
-            </tr>
-            <tr>
-                    <td class="elbow-placeholder">&nbsp;</td>
-                <td colspan="1">
-                    <div class="ansibleOptionAnchor" id="return-"></div>
-                    <b>role_arn</b>
-                    <a class="ansibleOptionLink" href="#return-" title="Permalink to this return value"></a>
-                    <div style="font-size: small">
-                      <span style="color: purple">string</span>
-                    </div>
-                </td>
-                <td>when O(pipeline_name) is omitted and this pipeline is listed</td>
+                <td>when a matching pipeline is found</td>
                 <td>
                             <div>The IAM role ARN used by the pipeline.</div>
                     <br/>

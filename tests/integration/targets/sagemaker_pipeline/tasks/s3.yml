@@ -118,8 +118,8 @@
   - name: Assert S3-backed update is visible in info
     ansible.builtin.assert:
       that:
-        - pipeline_s3_update_info.pipeline.pipeline_arn == pipeline_s3_create.pipeline.pipeline_arn
-        - (pipeline_s3_update_info.pipeline.pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'second version'
+        - pipeline_s3_update_info.pipelines[0].pipeline_arn == pipeline_s3_create.pipeline.pipeline_arn
+        - (pipeline_s3_update_info.pipelines[0].pipeline_definition | from_json).Steps[0].Arguments.ErrorMessage == 'second version'
 
   - name: Re-run S3-backed pipeline update
     amazon.ai.sagemaker_pipeline:

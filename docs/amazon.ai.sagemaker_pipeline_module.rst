@@ -178,7 +178,7 @@ Parameters
                 </td>
                 <td>
                         <div>The JSON pipeline definition as a string.</div>
-                        <div>Required when creating a pipeline unless O(pipeline_definition_s3_location) is supplied.</div>
+                        <div>Required when O(state=present) unless O(pipeline_definition_s3_location) is supplied.</div>
                         <div>Mutually exclusive with O(pipeline_definition_s3_location).</div>
                 </td>
             </tr>
@@ -195,7 +195,7 @@ Parameters
                 </td>
                 <td>
                         <div>The S3 object containing the JSON pipeline definition.</div>
-                        <div>Required when creating a pipeline unless O(pipeline_definition) is supplied.</div>
+                        <div>Required when O(state=present) unless O(pipeline_definition) is supplied.</div>
                         <div>Mutually exclusive with O(pipeline_definition).</div>
                 </td>
             </tr>
@@ -701,9 +701,9 @@ Common return values are documented `here <https://docs.ansible.com/projects/ans
                       <span style="color: purple">dictionary</span>
                     </div>
                 </td>
-                <td>when O(tags) is supplied and the run is not in check mode</td>
+                <td>on success when O(state=present) and the pipeline exists</td>
                 <td>
-                            <div>The pipeline tags, returned when O(tags) is supplied outside check mode.</div>
+                            <div>The pipeline tags.</div>
                     <br/>
                         <div style="font-size: smaller"><b>Sample:</b></div>
                         <div style="font-size: smaller; color: blue; word-wrap: break-word; word-break: break-all;">{&#x27;project&#x27;: &#x27;demo&#x27;}</div>
