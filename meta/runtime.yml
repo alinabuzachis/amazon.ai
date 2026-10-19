@@ -62,4 +62,3 @@ plugin_routing:
       deprecation:
         removal_version: "3.0.0"
         warning_text: "AWS Bedrock Agents Classic is in Maintenance Mode. New agent creation is restricted by AWS."
-
